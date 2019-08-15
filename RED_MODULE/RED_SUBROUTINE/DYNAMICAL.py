@@ -476,9 +476,11 @@ def COMPETITION(PFT_group,I,J_max,m_init,N,Seeds_in,h,g,g_iso,G_seed,nu,alpha):
         if PFT_group[i] ==  'T':
             
             
-            G_seed[i] = frac_par_tree_seed * G_seed[i]
+            G_seed[i] = frac_par_tree_seed * (G_seed[i])
+                    
+            Seeds_in[i] = max(0.0,G_seed[i]/m_init[i])        
+            
         
-            Seeds_in[i] = max(0.0,G_seed[i]/m_init[i])            
 
 
         elif PFT_group[i] == 'S':
@@ -492,7 +494,7 @@ def COMPETITION(PFT_group,I,J_max,m_init,N,Seeds_in,h,g,g_iso,G_seed,nu,alpha):
             G_seed[i] = frac_par_grass_seed * G_seed[i]
 
             Seeds_in[i] = max(0.0,G_seed[i]/m_init[i])   
-            
+
           
             
     

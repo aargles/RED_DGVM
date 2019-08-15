@@ -72,30 +72,58 @@ def PFT_HIERARCHY(P,PFT_group,I,nu_tot,nu_eq,nu_min,init_typ,num_pft_group,\
     nu_max_group[1] = nu_min
     
     nu_max_group[2] = nu_min
-           
+
+
 
     if (init_typ == 'nu_gamma_init' or init_typ == 'nu_P'):
-        
+
+        nu_min_count = 0
+        for i in range(0,I):
+            
+            if (nu_tot[i] < nu_min or P[i] <= 0):
+                nu_tot[i] = nu_min
+                nu_min_count = nu_min_count + 1       
+
+        if sum(nu_tot[:]) > 1.0:
+            print UserWarning('Vegetation Fraction Modified:\n'+\
+                  'The sum of the vegetation fraction is above 1, therefore '+\
+                  'the vegetation fraction is modified to be '+\
+                  'less than one (via normalisation). Such that the ' +\
+                  'analytical solutions are solvable. \n')
+            
+            remainder = float('inf')
+            remainder_prev = float('inf')
+            iteration = 0
+            while remainder > 0:
+                if remainder == remainder_prev:
+                    iteration = iteration + 1
+                if iteration > 50:
+                    print UserWarning('- Warning unable to modify vegetation'+\
+                                      'fractions to meet condition.')
+                    print nu_tot
+                    print P
+                    break
+                
+                remainder = sum(nu_tot[:]) - 1.0           
+                remainder_prev = sum(nu_tot[:]) - 1.0                  
+                num_pfts_above = I - nu_min_count
+                remainder_pft = remainder / float(num_pfts_above)
+                
+                for i in range(0,I):
+                    
+                    if nu_tot[i] > nu_min:
+                        
+                        nu_tot[i] = nu_tot[i] - remainder_pft
+                
+                        if nu_tot[i] < nu_min:
+                            
+                            nu_tot[i] = nu_min
+                            nu_min_count = nu_min_count + 1
+                    
+                
         for i in range(0,I):
             
             
-            
-            if nu_tot[i] > 1.0:
-                raise UserWarning('Vegetation Fraction Modified\n'+\
-                      'Vegetation fraction is above the maxima, therefore '+\
-                      'the vegetation fraction is modified to be '+\
-                      'less than one. Such that the analytical '+\
-                      'solutions are solvable')
-            
-                
-            elif nu_tot[i] < nu_min:
-                
-                nu_tot[i] = nu_min
-
-            if init_typ == 'nu_P' and P[i] <= 0.0:
-                
-                nu_tot[i] = nu_min
-
 
             if PFT_group[i] == 'T':
     
@@ -120,19 +148,13 @@ def PFT_HIERARCHY(P,PFT_group,I,nu_tot,nu_eq,nu_min,init_typ,num_pft_group,\
                 max_group_count[gp] =  max_group_count[gp] + 1.0
     
             nu_sum_group[gp] = nu_sum_group[gp] + nu_tot[i]
-
-            if nu_sum_group[gp] >= 1.0:
-                
-                nu_sum_group[gp] = 1.0 - (I-1)*nu_min
     
             num_pft_group[gp] = num_pft_group[gp] + 1.0
+        
 
-
-    
+        
         for i in range(0,I):
-            
-
-            
+                       
             if PFT_group[i] == 'T':
     
                 gp = 0
@@ -145,40 +167,39 @@ def PFT_HIERARCHY(P,PFT_group,I,nu_tot,nu_eq,nu_min,init_typ,num_pft_group,\
                 
                 gp = 2
             
-            
-            nu_eq[i] = sum(nu_sum_group[0:gp+1]) - (nu_max_group[gp] - \
-                       nu_tot[i])
-        
+            nu_max_diff = nu_max_group[gp] - nu_tot[i]
 
+            upper_coverage = sum(nu_max_group[0:gp]*max_group_count[0:gp])
+            
+            residual_coverage = round(sum(num_pft_group[0:gp+1]) \
+                                      - sum(max_group_count[0:gp+1])) * nu_min       
+
+                
+            nu_shade = upper_coverage + residual_coverage
+            
+            
+            nu_eq[i] = max(nu_min,nu_shade + nu_max_group[gp] - nu_max_diff)
         
+                
             if nu_tot[i] == nu_max_group[gp]:
                 
-
-                    
-                nu_tot[i] = nu_eq[i] - sum(nu_sum_group[0:gp]) - (num_pft_group[gp] - 1.0 ) * nu_min
-                
-
-                
-                
-        
+                nu_tot[i] = nu_eq[i] - upper_coverage - residual_coverage                   
                 nu_tot[i] = max(nu_min,nu_tot[i] / max_group_count[gp])
-      
-            
+                
+
             else:
                     
                 nu_tot[i] = nu_min
 
     
-            if nu_tot[i] >= 1.0:
-                
+            if nu_tot[i] > 1.0 - (I-1)*nu_min:
+
                 nu_tot[i] = 1.0 - (I-1)*nu_min
 
-            if nu_eq[i] >= 1.0:
-                
-                nu_eq[i] = 1.0 - (I-1)*nu_min
+            if nu_eq[i] > 1.0:
 
+                nu_eq[i] = 1.0 - nu_min
 
-    
 
     elif init_typ == 'P_gamma_init': 
         
@@ -247,13 +268,13 @@ def PFT_HIERARCHY(P,PFT_group,I,nu_tot,nu_eq,nu_min,init_typ,num_pft_group,\
 
 
   
-            if nu_tot[i] >= 1.0:
+            if nu_tot[i] > 1.0 - (I-1)*nu_min:
                 
                 nu_tot[i] = 1.0 - (I-1)*nu_min
 
-            if nu_eq[i] >= 1.0:
+            if nu_eq[i] > 1.0:
                 
-                nu_eq[i] = 1.0 - (I-1)*nu_min
+                nu_eq[i] = 1.0 - nu_min
 
         
     return nu_tot, nu_eq
@@ -458,7 +479,6 @@ def INTILISATION_nu(P,J,mult,m,m_init,N,nu_tot,nu_eq,nu_min,a_init,gamma_init,\
             
             G_str = 0.0
             
-        
     if Ng_cont == 0.0:
 
         g_init = 0.0
@@ -622,22 +642,12 @@ def INTILISATION_P_gamma_init(P,J,mult,m,m_init,N,g_init,nu_tot,nu_eq,nu_min,\
         - N, the  number density (population/m2)
     
     """
-    
-    if J != 1:
-        
-        G_seed = alpha * nu_tot * P
-    
-        m, N, NG_cont = number_dist_resolve(J,mult,m,m_init,N,G_seed,g_init,\
-                                            a_init,gamma_init,nu_tot,nu_eq,\
-                                            nu_min,phi_g)
-    
-    elif J == 1:
-        
-        m[0] = m_init
-        
-        N[0] = nu_tot / a_init
+    G_seed = alpha * nu_tot * P
 
-        g_init = alpha * nu_tot * P / N[0]
+    m, N, NG_cont = number_dist_resolve(J,mult,m,m_init,N,G_seed,g_init,\
+                                        a_init,gamma_init,nu_tot,nu_eq,\
+                                        nu_min,phi_g)
+    
     
     
     return m, N, g_init

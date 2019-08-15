@@ -1,1 +1,10 @@
-This eis a repository for development of the RED DGVM.
+Correspondence: Arthur Argles (University of Exeter), aa760@exeter.ac.uk
+
+A class orientated DGVM in representing vegetation, disturbance, competition and regrowth. Partitions the population of a Plant Function Type (PFT) into mass classes to represent the size distribution of the population, allowing the representation of size specific influences of growth and mortality dynamically. Provides methods to initialise the equilibrium state semi-analytically. A more complete description of the Model methodology is given with the paper Argles et al 2019 - Robust Ecosystem Demography (RED): a parsimonious approach to modelling vegetation dynamics in Earth System Models.
+
+
+Authored contents:
+
+RED_MODULE - a python module containing dynamical and equilibrium methods. (from RED_MODULE import RED)
+
+RED_test.py - a python script giving an example of how to initialise and dynamically run RED.

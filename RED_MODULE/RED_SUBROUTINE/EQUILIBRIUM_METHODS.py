@@ -646,13 +646,13 @@ def dX_dmu(J,mult,mu,phi_g=0.0,phi_a=0.0):
 
             elif j == J - 1 :
                 
-                kj =  (mult**((j-1)*phi_g))/((mult**j - mult**(j-1))*mu)
+                kj =  mult**((j-1)*(phi_g-1))/(mu*(mult-1))
 
-                dkdmu = - (mult**((j-1)*phi_g))/((mult**j - mult**(j-1))*mu**2)
+                dkdmu = - mult**((j-1)*(phi_g-1))/((mu**2)*(mult-1))
             
             prod = prod*kj
             
-            series = series + kj/dkdmu
+            series = series + dkdmu/kj
 
         dX_M_dmu = dX_M_dmu + series * prod * s_m
             
@@ -686,9 +686,7 @@ def k_j(j,mult,mu,phi_g):
     """
 
     
-    k_j = (mult**((j - 1)*phi_g)) * (mult**(j+1)-mult**j)/\
-          ((mult**j - mult **(j-1)) * (mult**(j*phi_g) + mu*(mult**(j+1)-\
-                                                             mult**j)))
+    k_j = mult**((j-1)*(phi_g-1))/(mult**(j*(phi_g-1.))+mu*(mult-1.0))
 
     return k_j
 

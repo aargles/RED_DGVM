@@ -78,7 +78,7 @@ def PFT_VALUES():
     #  Sapling Crown Area 
 
     m_init = [1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 0.15, 0.15, 0.5] 
-    a_init = [0.5, 0.5, 0.75, 0.75, 1.0, 0.5, 0.25, 0.25, 0.25]      
+    a_init = [0.5, 0.5, 0.5, 0.5, 0.5, 0.25, 0.25, 0.25, 0.25]      
     h_init = [3.0, 3.0, 3.0, 3.0, 3.0, 0.05, 0.05, 3.0, 3.0]
     
     ### Demorgraphic
@@ -86,7 +86,7 @@ def PFT_VALUES():
     #  Reseed Fraction
     
     gamma_init = [0.06,0.05,0.05,0.075,0.065,0.2,0.2,0.15,0.15]
-    alpha = [0.1,0.1,0.1,0.3,0.3,0.5,0.45,0.35,0.35] 
+    alpha = [0.05,0.1,0.1,0.1,0.1,0.6,0.6,0.35,0.35] 
     
     ### Allometry Scaling Parameters
     #  Growth Power 
@@ -104,9 +104,9 @@ def PFT_VALUES():
     #  Minimum veg fraction
     
     J = [10,10,10,10,10,1,1,8,8]                      
-    mult = [4.0,4.0,4.0,4.0,4.0,1.5,1.5,4.0,4.0]            
+    mult = [2.32,2.32,2.35,2.35,2.32,1.5,1.5,2.80,2.80]            
     J_max = max(J[0:I])                     
-    nu_min = 1.0e-3
+    nu_min = 0.001
     
     return     I, PFT_name, PFT_group, J, mult, J_max, m_init,h_init,\
                a_init, alpha,gamma_init, phi_g, phi_h, phi_a, nu_min
