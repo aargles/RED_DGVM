@@ -5,6 +5,6 @@ A class orientated DGVM in representing vegetation, disturbance, competition and
 
 Authored contents:
 
-RED_MODULE - a python module containing dynamical and equilibrium methods. (from RED_MODULE import RED)
+RED_MODULE - a python module containing dynamical and equilibrium methods. (from RED_MODULE import RED, RED_init)
 
 RED_test.py - a python script giving an example of how to initialise and dynamically run RED.

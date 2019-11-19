@@ -15,798 +15,695 @@ Also contains a module to provide snapshots of the equilibrium states.
 
 
 from .EQUILIBRIUM_METHODS import * 
+from .MISC_METHODS import LOAD_PFT_VALUES, output_key_interpet
+
+import numpy as np
 
 
-def PFT_HIERARCHY(P,PFT_group,I,nu_tot,nu_eq,nu_min,init_typ,num_pft_group,\
-                  nu_sum_group,max_group_count,nu_max_group):
-
+def EQ_get_outputs(output_key,I,J,mu_0,N_eq_m,g_scaling,alpha,gamma_base=None,\
+                   P_eq = None):
+    
     """
-    Adding the vegetation fraction of each PFT group, estimates the dominant 
-    and sub-dominant PFTs through shading or the equilibrium fraction. 
+    Sorts the Outputs based upon a requested key.
+
+    Inputs:
+        
+        - output variables listed in the output key tuple:  
+          key, the string containing the output information. 'X_tot', the total
+          value of X across all classes. 'X_m', the distribution of X across 
+          the mass classes. 'X_mean', the mean value of X across the 
+          distribution of trees. 'X_Y_r', the value of X at the r percentile of
+          Y. 'X_norm' returns the normalised distribution. Other values can be:
+          'mu_0', 'alpha' and anything stored in "PFT_STORE".
+    
+     - I, Number of PFTs (-)
+        
+     - J, number of mass classes. (-)      
+          
+     - mu_0, the turnover ratio a boundary tree defined as: \
+          gamma_base * m_0/g_0. (-)
+     
+     - N_eq_m, the number of trees per unit area over mass at different 
+            PFTs, at equilibrium. (population/m2)
+            
+     - nu_eq_m, the equilibrium coverage of each PFT across mass classes. (-) 
+
+     - g_scaling, the growth-mass scaling. (-) ]
+        
+     - alpha, the fraction of tree productivity going into seedling 
+          production. (-) 
+            
+     - gamma_base, the baseline mortalility. (population/year).
+     
+     - P_eq_shade, the total gridbox carbon assimilate at the equilibrium 
+       state. (kgC/m2/year) - If P_or_gamma == 'P'
+                  
+    Returns:
+        
+        output_dir, dictonary object with the outputs and corresponding 
+        strings.
+    
+    """
+    m, h, a = LOAD_PFT_VALUES(('m','h','a'))      
+    # compute the N distribution
+    output_dict = {}
+          
+
+    for key in output_key:
+
+        output_dict.update({key:output_key_interpet(key,I,J,mu_0,N_eq_m,m,a,h,\
+                                                    g_scaling,alpha,\
+                                                    gamma_base=gamma_base,\
+                                                    P_tot=P_eq)})
+        
+
+    output_dict_subset = [output_dict[key] for key in output_key]
+
+    return output_dict_subset
+            
+    
+    
+    
+def EQ_mu(observation,observation_value,observation_type,P_or_gamma,I,J,J_max,\
+          S,m_0,m_scaling,h_0,h_scaling,a_0,a_scaling,g_scaling,C,c_pftg,\
+          c_unique,alpha,nu_min,PFT_competition,P=None,gamma_base=None,\
+          continuous_check=True):
+    
+    """
+    Uses two methods of getting the steady state involving a observation. 
+    Returns the equilibrium coverage with regards to the PFT hierarchy.
     
     Inputs:
         
-        - P, productivity minus litterfall. The amount of biomass grown into 
-          the structure. (kg/m2/year)
+        - observation, can be "coverage"/"nu_obs" (-), "stand density"/"N_obs"
+         (/m2) "carbon mass"/"M_obs" (kgC/m2), "height"/"H_obs" (m)
+         
+        - observation_value, the PFT observed value of a total. (-)
         
-        - PFT_group, PFT physiology woody vs grass. (-)
+        - observation_type, the method employed by RED to find the mu_0 through
+          the discrete solutions for the total, average or statistical 
+          cummalitve (i.e. meadian or top 20% ). Currently this is just the
+          total quantity. Values allowed: ("total","mean" or a tuple with 
+          cummlative("cumulative")). (-)
+              
+              
+        - P_or_gamma, method used to employ in splitting mu_0 into it's 
+          components, either by knowing a value for P ('P') or a value for
+          gamma ('gamma'). (-)
+     
+        - I, Number of PFTs. (-)
+              
+        - J, the number of mass classes. (-)
         
-        - I, Number of PFTs (-)
+        - S, multiplicative bin scaling parameter. (-)
+                                   
+        - m_0, carbon mass at boundary. (kgC)
+            
+        - m_scaling, the mass scaling with respect to m_0. (-)
+        
+        - h_0, boundary height. (m)
+            
+        - h_scaling, the height scaling with respect to h_0. (-)
+        
+        - a_0, boundary crown area. (m2)
+            
+        - a_scaling, the crown area scaling with respect to a_0. (-)
+        
+        - g_scaling, the growth scaling with respect to g_0. (-)
+
+        - C, the number of unique PFT groups. (-)
+                  
+        - c_pftg, the PFT group dominance hierarchy. (-)
+        
+        - c_unique, the unique rows of each of the PFT group hierarchy. (-)
+                                          
+        - alpha, the reseed fraction. (-)
+
+        - nu_min, minimum vegetation fraction. (-)
+        
+        - PFT_competition, if True solve under the assumptions of the
+          competitive exclusions of RED. Otherwise purely solve to fit the
+          observations, therby ignoring the dynamical equilibrium. (-)
+          
+        - P, Net Primary Productivity minus the Local Litterfall. The total 
+             carbon assimilate for the gridbox. (kg/m2/year)
+
+        - gamma_base, the baseline mortalility from the intialisation. 
+          (population/year)
+             
+        - continuous_check, if True solves for the equilibrium using the 
+          continuous forms of the RED equations. (-)
+        
+    Outputs:
     
-        - J, number of mass classes. (-)
         
-        - nu_tot, total vegetation fraction.  (-)
+        - mu_0, the turnover ratio a boundary tree defined as: \
+          gamma_base * m_0/g_0. (-)
         
-        - nu_eq, the equilibrium fraction. (-)
-                
-        - nu_min, the minimum vegetation fraction allowed. (-)
-        
-        - init_typ, Only used if init == True. Picks the method used to 
-          initialise the model. init_typ == 'nu_P', fits gamma_init to
-          nu_tot and productivity. init_typ == 'nu_gamma_init', fits a growth
-          rate from a vegetation fraction and gamma_init. init_typ == 
-          'P_gamma_init', fits a vegetation fraction from a gamma_init and
-          growth rate. (-)
+        - N, the RED equilibrium number density across the classes
+          (population/m2)
           
-        - num_pft_group, contains the number of PFTs in each PFT group. (-)
+        - nu_eq_shade, the steady state of the coverage, once PFT shading has
+          been calculated. (-) - PFT_competition == True
           
-        - nu_sum_group, the total vegetation fraction of PFTs in a given group.
-          (-)
-        
-        - max_group_count, the total number of grouped PFTs with the maximum 
-          vegetationg fraction of the group. (-)
-        
-        - nu_max_group, the maximum vegetation fraction of a group. (-)
-        
-        
+        - nu_eq, the equilibrium vegetation fraction of a PFT. (-) - 
+          PFT_competition == False
+          
+        - P_eq_shade, the total gridbox carbon assimilate at the equilibrium 
+          state. (kgC/m2/year) - If P_or_gamma == 'P'
+              
     """
-
-    # If init_type == 'nu_gamma_init' or 'nu_P' Loops runs through
-    # each of the PFTs:
-    #
-    #   Adds all the vegetation fractions of different PFT catergories to
-    #   estimate the corresponding equilibrium fractions.
-
-    nu_max_group[0] = nu_min
+    nu_eq = np.zeros(I)
+    mu_0 = np.zeros(I)
+    N = np.zeros((I,J_max))
+    #The total gridbox productivity will be different when compared to a fully
+    # saturated grid-box. After adjusting to find the PFT competition gridbox
+    # fraction, we must also adjust the total assimilate (P), accordingly. 
+    # In this case we assume that the ajusted grid-box productivity is linearly
+    # related to the gridbox coverage.
     
-    nu_max_group[1] = nu_min
+    if P_or_gamma == 'P':
     
-    nu_max_group[2] = nu_min
+        P_eq_shade = np.zeros(I)
 
+    if observation_type == 'total':
 
-
-    if (init_typ == 'nu_gamma_init' or init_typ == 'nu_P'):
-
-        nu_min_count = 0
-        for i in range(0,I):
+        
+        if (observation == 'coverage' or observation == 'nu_obs'):
             
-            if (nu_tot[i] < nu_min or P[i] <= 0):
-                nu_tot[i] = nu_min
-                nu_min_count = nu_min_count + 1       
-
-        if sum(nu_tot[:]) > 1.0:
-            print UserWarning('Vegetation Fraction Modified:\n'+\
-                  'The sum of the vegetation fraction is above 1, therefore '+\
-                  'the vegetation fraction is modified to be '+\
-                  'less than one (via normalisation). Such that the ' +\
-                  'analytical solutions are solvable. \n')
+            # If the observed coverage is equivalent to nu_eq, we derive the 
+            # nu_eq_star and nu_eq_adjusted without having to find a mu_0 then 
+            # coverage (in comparison to other observations).
             
-            remainder = float('inf')
-            remainder_prev = float('inf')
-            iteration = 0
-            while remainder > 0:
-                if remainder == remainder_prev:
-                    iteration = iteration + 1
-                if iteration > 50:
-                    print UserWarning('- Warning unable to modify vegetation'+\
-                                      'fractions to meet condition.')
-                    print nu_tot
-                    print P
-                    break
+            if PFT_competition == True:
                 
-                remainder = sum(nu_tot[:]) - 1.0           
-                remainder_prev = sum(nu_tot[:]) - 1.0                  
-                num_pfts_above = I - nu_min_count
-                remainder_pft = remainder / float(num_pfts_above)
+                nu_eq[:] = observation_value[:]
+                nu_eq[nu_eq<nu_min] = nu_min
+                nu_eq_star,\
+                nu_eq_shade = nu_eq_star_disc(I,nu_eq,nu_min,C,c_pftg,\
+                                              c_unique,P_or_gamma=P_or_gamma,\
+                                              P_tot=P,\
+                                              gamma_base=gamma_base)
+                
+                for i in range(0,I):
+
+                    j = np.arange(0,J[i],dtype=int)                     
+                    mu_0[i] = find_mu('coverage',nu_eq_star[i],J[i],S[i],\
+                                      m_0[i], m_scaling[i,j],h_0[i],\
+                                      h_scaling[i,j],a_0[i],a_scaling[i,j],\
+                                      g_scaling[i,j],alpha[i],mu_init=0.1,\
+                                      continuous_check=continuous_check)
+
+                    if P_or_gamma == 'P':
+                        
+                        if observation_value[i] > 0:
+                        
+                            P_eq_shade[i] = P[i]*nu_eq_shade[i]/\
+                                            observation_value[i]
+     
+                        else:
+                            
+                            P_eq_shade[i] =  0.0
+
+
+                                        
+            else:
+                
+                nu_eq[:]  = observation_value[:]
                 
                 for i in range(0,I):
                     
-                    if nu_tot[i] > nu_min:
+                    j = np.arange(0,J[i],dtype=int)  
+                    mu_0[i] = find_mu('coverage',nu_eq[i],J[i],S[i],\
+                                      m_0[i], m_scaling[i,j],h_0[i],\
+                                      h_scaling[i,j],a_0[i],a_scaling[i,j],\
+                                      g_scaling[i,j],alpha[i],mu_init=0.1,\
+                                      continuous_check=continuous_check)
+                    
+                    if P_or_gamma == 'P':
                         
-                        nu_tot[i] = nu_tot[i] - remainder_pft
-                
-                        if nu_tot[i] < nu_min:
+                        if observation_value[i] != 0:
+                        
+                            P_eq_shade[i] = P[i]
+
+                        else:
                             
-                            nu_tot[i] = nu_min
-                            nu_min_count = nu_min_count + 1
-                    
-                
-        for i in range(0,I):
-            
-            
+                            P_eq_shade[i] = 0.
 
-            if PFT_group[i] == 'T':
-    
-                gp = 0
-                
-            elif PFT_group[i] == 'S':
-                
-                gp = 1
-                
-            elif PFT_group[i] == 'G':
-                
-                gp = 2
-                
-            if nu_tot[i] > nu_max_group[gp]:
-                
-                nu_max_group[gp] = nu_tot[i]
-    
-                max_group_count[gp] = 1.0
-                
-            elif nu_tot[i] == nu_max_group[gp]:
-                
-                max_group_count[gp] =  max_group_count[gp] + 1.0
-    
-            nu_sum_group[gp] = nu_sum_group[gp] + nu_tot[i]
-    
-            num_pft_group[gp] = num_pft_group[gp] + 1.0
-        
 
-        
-        for i in range(0,I):
                        
-            if PFT_group[i] == 'T':
-    
-                gp = 0
-                
-            elif PFT_group[i] == 'S':
-                
-                gp = 1
-                
-            elif PFT_group[i] == 'G':
-                
-                gp = 2
+        else:
             
-            nu_max_diff = nu_max_group[gp] - nu_tot[i]
+            # Assuming the current observations have a close to identical
+            # distribution to that of the equilibrium, we first need to find 
+            # the equivalent equilibrium coverage that would lend to the 
+            # observation.
 
-            upper_coverage = sum(nu_max_group[0:gp]*max_group_count[0:gp])
-            
-            residual_coverage = round(sum(num_pft_group[0:gp+1]) \
-                                      - sum(max_group_count[0:gp+1])) * nu_min       
-
+            for i in range(0,I):
                 
-            nu_shade = upper_coverage + residual_coverage
+                j = np.arange(0,J[i],dtype=int)   
+                mu_0[i] = find_mu(observation,observation_value[i],J[i],S[i],\
+                                m_0[i],m_scaling[i,j],h_0[i],h_scaling[i,j],\
+                                a_0[i],a_scaling[i,j],g_scaling[i,j],alpha[i],\
+                                mu_init=0.1,continuous_check=continuous_check)
+                nu_eq[i] = nu_eq_disc(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                                 h_scaling[i,j],a_scaling[i,j],g_scaling[i,j],\
+                                 alpha[i],nu_min)
+
+            # Next we take into account the cross PFT competitive dynamics, the 
+            # equilibrium coverage is adjusted according to the model paper. 
+            # Space currently occupied by sub-dominant PFTs is given over to 
+            # the PFT with the highest current equilibrium coverage. While the 
+            # adjusted equilibrium coverages are assumed to be somewhere 
+            # between the summation within functional groups and the current
+            # observation derived equilibrium coverage.
             
+            if PFT_competition == True:
+                
+                nu_eq_star,\
+                nu_eq_shade = nu_eq_star_disc(I,nu_eq,nu_min,C,c_pftg,c_unique,
+                                              P_or_gamma=P_or_gamma,\
+                                              P_tot=P,\
+                                              gamma_base=gamma_base)
+
+        # Refind mu_0, from the derived equilibrium cover. Then find the
+        # equilbrium number density distribution.
+
+        if P_or_gamma == 'gamma':
             
-            nu_eq[i] = max(nu_min,nu_shade + nu_max_group[gp] - nu_max_diff)
+            P_eq_shade = np.zeros(I)
         
-                
-            if nu_tot[i] == nu_max_group[gp]:
-                
-                nu_tot[i] = nu_eq[i] - upper_coverage - residual_coverage                   
-                nu_tot[i] = max(nu_min,nu_tot[i] / max_group_count[gp])
-                
+        if PFT_competition == True:
 
-            else:
+            for i in range(0,I):
+            
+                j = np.arange(0,J[i],dtype=int)  
+                mu_0[i] = find_mu('coverage',nu_eq_star[i],J[i],S[i],m_0[i],\
+                                  m_scaling[i,j],h_0[i],h_scaling[i,j],a_0[i],\
+                                  a_scaling[i,j],g_scaling[i,j],alpha[i],\
+                                  mu_init=0.1,\
+                                  continuous_check=continuous_check)                
+                N[i,j] = N_dist_eq(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                                   a_scaling[i,j],a_0[i],g_scaling[i,j],\
+                                   nu_eq_shade[i])
+
+                if P_or_gamma == 'gamma':
                     
-                nu_tot[i] = nu_min
+                    P_eq_shade[i] = sum(gamma_base[i] * m_0[i]/mu_0[i]*\
+                                        N[i,j] * g_scaling[i,j])/(1.0-alpha[i])
 
-    
-            if nu_tot[i] > 1.0 - (I-1)*nu_min:
-
-                nu_tot[i] = 1.0 - (I-1)*nu_min
-
-            if nu_eq[i] > 1.0:
-
-                nu_eq[i] = 1.0 - nu_min
-
-
-    elif init_typ == 'P_gamma_init': 
+                
+                
+        elif PFT_competition == False:
+            
+            for i in range(0,I):
+                
+                j = np.arange(0,J[i],dtype=int)  
+                N[i,j] = N_dist_eq(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                                   a_scaling[i,j],a_0[i],g_scaling[i,j],\
+                                   nu_eq[i])
+            
+    if (P_or_gamma == 'P' or P_or_gamma == 'gamma'\
+        and PFT_competition == True):
         
- 
-        for i in range(0,I):
-            
-            if PFT_group[i] == 'T':
+        return mu_0, N, nu_eq_shade, P_eq_shade
     
-                gp = 0
-                
-            elif PFT_group[i] == 'S':
-                
-                gp = 1
-                
-            elif PFT_group[i] == 'G':
-                
-                gp = 2
-                
-            if nu_eq[i] > nu_max_group[gp]:
-                
-                nu_max_group[gp] = nu_eq[i]
+    elif (P_or_gamma == 'P' and PFT_competition == False):
 
-                max_group_count[gp] = 1.0
-
-            elif nu_eq[i] == nu_max_group[gp]:
-                
-                max_group_count[gp] = max_group_count[gp] + 1.0
-
-            
-            num_pft_group[gp] = num_pft_group[gp] + 1.0
-
-        nu_shade = [0.,0.,0.]
-
-        nu_shade[0] = (num_pft_group[0] - 1.0)* nu_min
-
-        nu_shade[1] =  nu_shade[0] + (num_pft_group[1] - 1.0)* nu_min + max(nu_min,nu_max_group[0]-nu_shade[0])
-        
-        nu_shade[2] =  nu_shade[1] + (num_pft_group[2] - 1.0)* nu_min + max(nu_min,nu_max_group[1]-nu_shade[1])
-
-        for i in range(0,I):
-            
-            if PFT_group[i] == 'T':
+        return mu_0, N, nu_eq, P_eq_shade
     
-                gp = 0
-                
-            elif PFT_group[i] == 'S':
-                
-                gp = 1
-                
-            elif PFT_group[i] == 'G':
-                
-                gp = 2
-                
-                
-
-            if nu_eq[i] == nu_max_group[gp]:
-                
-                nu_tot[i] = max(nu_min,(nu_max_group[gp] - nu_shade[gp])\
-                            /max_group_count[gp])
-                
-            else:
-                
-                nu_eq[i] = nu_max_group[gp]
-                
-                nu_tot[i] = nu_min
-
-
-  
-            if nu_tot[i] > 1.0 - (I-1)*nu_min:
-                
-                nu_tot[i] = 1.0 - (I-1)*nu_min
-
-            if nu_eq[i] > 1.0:
-                
-                nu_eq[i] = 1.0 - nu_min
-
+    elif (PFT_competition == True):
         
-    return nu_tot, nu_eq
-            
-            
-
-def INTILISATION_nu(P,J,mult,m,m_init,N,nu_tot,nu_eq,nu_min,a_init,gamma_init,\
-                    alpha,phi_g,phi_a,init_typ):
+        return mu_0, N, nu_eq_shade
+        
+    elif (PFT_competition == False):
+        
+        return mu_0, N, nu_eq
+        
+    return
+    
+def EQ_sample(observation,observation_value,P_or_gamma,I,J,J_max,S,m_0,\
+              m_scaling,m_sample,a_0,a_scaling,g_scaling,C,c_pftg,c_unique,\
+              alpha,nu_min,PFT_competition,P_tot,continuous_check):
     
     """
-    Uses two methods of getting the steady state involving a observational 
-    coverage. Returns the demographic profile of the equilibrium.
+    Function to determine the mu value from the sub sample distribution.
     
     Inputs:
-                
-        - P, productivity minus litterfall. The amount of biomass grown into 
-          the structure. (kg/m2/year)
-        
-        - J, number of mass classes. (-)
-        
-        - mult, multiplicative bin scaling parameter. (-)
-        
-        - m, stored carbon biomass of a single tree. (kg)
-        
-        - m_init, the initial mass. (-)
-        
-        - N, the number density. (population/m2)
-        
-        - nu_tot, total vegetation fraction.  (-)
-        
-        - nu_eq, the equilibrium vegetation fraction allowed. (-)
-
-        - nu_min, the minimum vegetation fraction allowed. (-)
-        
-        - a_init, the initial area. (m2)
-        
-        - gamma_init, the baseline mortality. (/year)
-        
-        - alpha, the fraction of P going into seedling production. (-)
-        
-        - phi_g, growth-mass scaling power. (-)
-        
-        - phi_a, crown area - mass scaling power. (-)
-          
-        - init_typ, Only used if init == True. Picks the method used to 
-          initialise the model. init_typ == 'nu_P', fits gamma_init to
-          nu_tot and productivity. init_typ == 'nu_gamma_init', fits a growth
-          rate from a vegetation fraction and gamma_init. init_typ == 
-          'P_gamma_init', fits a vegetation fraction from a gamma_init and
-          growth rate. (-)
-      
-        
-    Outputs:
-       
-        - m, the mass range (kg)
-
-        - N, the  number density (population/m2)
-        
-        - g_init, the estimated initial growth rates (kg/m2/year)
     
-        - gamma_init, the baseline mortality. (/year)
-    """
-        
-        
-    ### Initiate == True and init_typ == 'nu_P' or 'nu_gamma_init'.
-    #
-    #    If nu_tot equal or greater than 1.0, change to 1.0 - I*nu_min, such 
-    #    that it compiles. This will also raise a user warning.
-    #    
-    #    From the discrete solutions for the vegetation fraction. Numerically
-    #    solve for "mu" given the vegetation fraction.
-    #
-    #    From the initial growth rate we can estimate the baseline mortalilty,
-    #    using the steady state solutions. This is done by estimating an growth 
-    #    rate from the total structral growth. Then using this growth rate and
-    #    the solved mu to estimate the baseline mortalility.
-    #
-    #    If input P is not provided, but a gamma initial is, we estimate the 
-    #    steady state productivity.
-    #
-    #   * The number of the population dying is equal to the number of seedlings
-    #     and seedlings can only grow in free space (see write up for 
-    #     derivation of discrete equilbirium solutions). 
-        
-        
-    if J != 1:
-        
-        # Estimate mu for the newton root finding method
-        
-        mu_init = 0.5     # Guessed mu
-
-        mu = find_mu_nu(J,mult,nu_eq,mu_init,alpha,phi_g)
-
-
-        # Finding the baseline mortalilty or total growth
-        
-        if init_typ == 'nu_gamma_init':
-
-            g_init_eq = (gamma_init * m_init) / mu
-            
-            G_str_eq = G_str_discrete(g_init_eq,J,mult,a_init,nu_eq,mu,\
-                                    phi_g,phi_a)
-            
-            if nu_eq != 0.0:
-                G_seed = (alpha)/(1.0-alpha)* G_str_eq * nu_tot/nu_eq
-            else:
-                G_seed = 0.0
-                
-            G_str = G_seed/alpha * (1.0-alpha)
-
-        elif init_typ == 'nu_P':
-            
-            if P > 0.0:
-                
-                G_str = (1.0 - alpha) * P * nu_tot
-
-                G_seed = alpha * P * nu_tot
-            
-                G_str_eq = (1.0 - alpha) * P * nu_eq
-            
-                g_init_eq = g_init_discrete(G_str_eq,J,mult,a_init,nu_eq,\
-                                            mu,phi_g,phi_a)
-            
-                gamma_init = mu * g_init_eq / m_init
-                
-                
-            else:
-                                
-                gamma_init = float('inf')
-                
-                G_seed = alpha * P * nu_tot
-                
-                g_init_eq = 0.0
-                
-                G_str = 0.0
-
-        else:
-            
-            g_init_eq = 0.0
-
-            gamma_init = float('inf')
-            
-            G_str = 0.0
-
-            
-        
-        m, N, Ng_cont = number_dist_resolve(J,mult,m,m_init,N,G_seed,\
-                                            g_init_eq,a_init,gamma_init,\
-                                            nu_tot,nu_eq,nu_min,phi_g)
-
-    # One mass class initialisation
+      - observation, can be "coverage"/"nu_obs" (-), "stand density"/"N_obs"
+        (/m2) "carbon mass"/"M_obs" (kgC/m2), "height"/"H_obs" (m).
     
-    elif J == 1:
-        
-        m[0] = m_init
-        
-        N[0] = nu_tot / a_init
-
-        Ng_cont = N[0] 
-
-        if init_typ == 'nu_gamma_init':
-            
-            mu = (1.0 - nu_eq) * alpha/(1.0-alpha)
-            
-            g_init_eq = gamma_init * m_init / mu
-
-            G_str = g_init_eq * N[0]
-            
-        elif init_typ == 'nu_P':
-
-            if P > 0.0:
-                
-                G_seed_eq = P * nu_eq * alpha
-                
-                N_eq = nu_eq / a_init
-             
-                if N_eq == 0:
-                    
-                    gamma_init = float('inf')
-                    
-                else:
-                    
-                    
-                    gamma_init = G_seed_eq *(1-nu_eq) / (N_eq * m_init)  
-                
-                
-                G_str = P * nu_tot * (1.0-alpha)
-
-            
-            else:
-                
-                gamma_init = float('inf')
-                
-                mu = float('inf')
-                
-                G_str = 0.0
+      - observation_value, the corresponding observation value, must be an 
+        array be of the same size of the maximum number of mass classes. (-)
     
-                
-        else:
-            
-            gamma_init = float('inf')
-            
-            G_str = 0.0
-            
-    if Ng_cont == 0.0:
-
-        g_init = 0.0
-
-    else:        
-        
-        g_init = G_str/Ng_cont
-    
-    if J ==1:
-        
-        mu = gamma_init * m_init / g_init
-            
-
-        
-    return  m, N, g_init, gamma_init
-    
-    
-    
-def EQUIL_FRAC(P,J,mult,m_init,nu_min,a_init,gamma_init,alpha,phi_g,phi_a):
-    
-    """
-    Using the discrete form of the steady state solutions, uses one method of 
-    Returns the equilibrium fraction from a productivity and baseline
-    mortalilty.
-    
-    Inputs:
-                
-        - P, productivity minus litterfall. The amount of biomass grown into 
-          the structure. (kg/m2/year)
-        
-        - J, number of mass classes. (-)
-        
-        - mult, multiplicative bin scaling parameter. (-)
-        
-        - m_init, the initial mass. (-)
-        
-        - nu_min, the minimum vegetation fraction allowed. (-)
-        
-        - a_init, the initial area. (m2)
-        
-        - gamma_init, the baseline mortality. (/year)
-        
-        - alpha, the fraction of P going into seedling production. (-)
-        
-        - phi_g, growth-mass scaling power. (-)
-        
-        - phi_a, crown area - mass scaling power. (-)
-               
-        
-    Outputs:
-       
-        - m, the mass range (kg)
-
-        - N, the  number density (population/m2)
-        
-        - g_init, the estimated initial growth rates (kg/m2/year)
-        
-        - nu_eq, the equilibrium vegetation fraction. (-)
-    
-        - gamma_init, the baseline mortality. (/year)
-    """
-        
-
-
-    if J != 1:
-    
-    # Estimate mu for the newton root finding method
-    
-        mu_init = 0.2     # Guessed mu
-        
-        
-        if P > 0.0:
-    
-            mu = find_mu_g(P,J,mult,m_init, a_init,gamma_init,mu_init,\
-                           alpha,phi_g,phi_a,tol = None)
-        
-            g_init = gamma_init * m_init / mu
-            
-            nu_eq = nu_eq_discrete(J,mult,mu,nu_min,alpha,phi_g)
-
-        else:
-            
-            g_init = 0.0
-            
-            nu_eq = nu_min
-
-    elif J==1:
-
-
-        if P > 0.0:
-            
-            g_init = (1.0 - alpha) * P * a_init
-    
-            mu = gamma_init * m_init / g_init
-            
-            nu_eq = max(nu_min,1.0 - mu * (1.0 - alpha)/alpha)
-                        
+       - P_or_gamma, method used to employ in splitting mu_0 into it's 
+         components, either by knowing a value for P ('P') or a value for
+         gamma ('gamma'). (-)
          
-            
-        else:
-            
-            g_init = 0     
-            
-            nu_eq = nu_min
-    
-    
-    return g_init, nu_eq
-    
-
-def INTILISATION_P_gamma_init(P,J,mult,m,m_init,N,g_init,nu_tot,nu_eq,nu_min,\
-                              a_init,gamma_init,alpha,phi_g):
-    """
-    Returns the number desnity of the steady state based upon a current 
-    vegetation fraction and the corresponding equilibrium fraction.
-    
-        Inputs:
-                
-        - P, productivity minus litterfall. The amount of biomass grown into 
-          the structure. (kg/m2/year)
-        
-        - J, number of mass classes. (-)
-        
-        - mult, multiplicative bin scaling parameter. (-)
-        
-        - m, stored carbon biomass of a single tree. (kg)
-        
-        - m_init, the initial mass. (-)
-        
-        - N, the number density. (population/m2)
-        
-        - g_init, the estimated initial growth rate. (kg/m2/year)
-        
-        - nu_tot, total vegetation fraction.  (-)
-        
-        - nu_eq, the equilibrium vegetation fraction allowed. (-)
-        
-        - nu_min, the minimum vegetation fraction allowed. (-)
-        
-        - a_init, the initial area. (m2)
-        
-        - gamma_init, the baseline mortality. (/year)
-        
-        - alpha, the fraction of P going into seedling production. (-)
-        
-        - phi_g, growth-mass scaling power. (-)
-        
-        - phi_a, crown area - mass scaling power. (-)
-          
-        - init_typ, Only used if init == True. Picks the method used to 
-          initialise the model. init_typ == 'nu_P', fits gamma_init to
-          nu_tot and productivity. init_typ == 'nu_gamma_init', fits a growth
-          rate from a vegetation fraction and gamma_init. init_typ == 
-          'P_gamma_init', fits a vegetation fraction from a gamma_init and
-          growth rate. (-)
-      
-        
-    Outputs:
-       
-        - m, the mass range (kg)
-
-        - N, the  number density (population/m2)
-    
-    """
-    G_seed = alpha * nu_tot * P
-
-    m, N, NG_cont = number_dist_resolve(J,mult,m,m_init,N,G_seed,g_init,\
-                                        a_init,gamma_init,nu_tot,nu_eq,\
-                                        nu_min,phi_g)
-    
-    
-    
-    return m, N, g_init
-    
-    
-    
-def INTILISATION_OUTPUT(PFT_group,J,m,M,N,h,h_mean,h_init,a,a_init,g_init,G,\
-                        gamma_init,nu,nu_tot,phi_g,phi_h,phi_a):
-    """
-    Function returns the numerical integral of various outputs across the 
-    number density. Assumes Niklas & Spatz* allometry for multiple mass classed
-    pfts:
-    
+       - I, Number of PFTs. (-)
               
+       - J, the number of mass classes. (-)
+        
+       - S, multiplicative bin scaling parameter. (-)
+                                   
+       - m_0, carbon mass at boundary. (kgC)
+            
+       - m_scaling, the mass scaling with respect to m_0. (-)
+       
+       - m_sample, the boundary masses, for each PFT contains the lower and 
+         upper boundaries for the sample mass. (-)
+        
+       - a_0, boundary crown area. (m2)
+            
+       - a_scaling, the crown area scaling with respect to a_0. (-)
+                   
+       - g_scaling, the growth scaling with respect to g_0. (-)
+    
+       - C, the number of unique PFT groups. (-)
+                  
+       - c_pftg, the PFT group dominance hierarchy. (-)
+        
+       - c_unique, the unique rows of each of the PFT group hierarchy. (-)
+                                          
+       - alpha, the reseed fraction. (-)
+    
+       - nu_min, minimum vegetation fraction. (-)
+        
+       - PFT_competition, if True solve under the assumptions of the
+         competitive exclusions of RED. Otherwise purely solve to fit the
+         observations, therby ignoring the dynamical equilibrium. (-)
+          
+       - P, Net Primary Productivity minus the Local Litterfall. The total 
+             carbon assimilate for the gridbox. (kg/m2/year)
+        
+       - continuous_check, if True solves for the equilibrium using the 
+         continuous forms of the RED equations. (-)
+         
+    """
+    # Firstly, check to see if the dimensions are correct
+    
+    if (len(observation_value[0,:]) is not J_max or\
+        len(observation_value[:,0]) is not I):
+        
+        raise UserWarning('\nSample Error:\n Observation do not have the'+\
+                          ' same size when compared to the'+\
+                          ' the maximum number of classes.'+\
+                          ' Please input an array of observations of size:'+\
+                          str(I)+'x'+str(J_max))
+    
+    # Secondly, find the closet mass classes nearests to the chosen bounds.   
+    # We choose this to be the nearest mass left nearest class or zero for the
+    # left boundary. or the right nearest or top class for the right boundary.
+    j_lower = np.zeros(I,dtype=int)
+    j_upper = np.zeros(I,dtype=int)
+    mu_0 = np.zeros(I)     
+    nu_eq = np.zeros(I)
+    N = np.zeros((I,J_max))
+    
+    for i in range(0,I):
+        
+        m_lower_diff = float('inf')
+        m_upper_diff = float('inf')
+
+        for j in range(0,J[i]):
+
+            m = m_0[i] * m_scaling[i,j]
+            
+            down_diff = abs(m - m_sample[0][i]) 
+            up_diff = abs(m - m_sample[1][i])
+            
+            if m_lower_diff > down_diff and m <= m_sample[0][i]:
+                
+                m_lower_diff = down_diff
+                j_lower[i] = j
+
+            elif m_sample[0][i] < m_0[i]:
+                
+                j_lower[i] = 0
+
+            if m_upper_diff > up_diff and m >= m_sample[1][i]:
+                
+                m_upper_diff = up_diff
+                j_upper[i] = j
+    
+            elif m_sample[1][i] > m_0[i] * m_scaling[i,J[i]-1]:
+                
+                j_upper[i] = J[i] - 1
+                        
+        if j_lower[i] > j_upper[i] and J[i] > 1:
+            
+            raise UserWarning('\n\nSample Error:\n\nThe lower boundary'+\
+                              ' class is equal to the upper boundary'+\
+                              ' class and the total number of mass '+\
+                              'classes is greater than one. Please '+\
+                              'pick a wider sample.')
+        
+        # Assuming the current observations have a close to identical
+        # distribution to that of the equilibrium, we first need to find 
+        # the equivalent equilibrium coverage that would lend to the 
+        # observation.
+        j = np.arange(0,J[i],dtype=int)
+        mu_0[i] = find_mu_sample(observation,observation_value[i,j],J[i],\
+                                 j_lower[i],j_upper[i],S[i],m_scaling[i,j],\
+                                 g_scaling[i,j],mu_init=0.3)      
+        nu_eq[i] = nu_eq_disc(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                 m_scaling[i,j],a_scaling[i,j],g_scaling[i,j],\
+                 alpha[i],nu_min)
+        
+    # Next we take into account the cross PFT competitive dynamics, the 
+    # equilibrium coverage is adjusted according to the model paper. 
+    # Space currently occupied by sub-dominant PFTs is given over to 
+    # the PFT with the highest current equilibrium coverage. While the 
+    # adjusted equilibrium coverages are assumed to be somewhere 
+    # between the summation within functional groups and the current
+    # observation derived equilibrium coverage.
+    
+    if PFT_competition == True:
+        
+        nu_eq_star, nu_eq_shade = nu_eq_star_disc(I,nu_eq,nu_min,\
+                                                 C,c_pftg,c_unique)
+        
+        for i in range(0,I):
+            
+            j = np.arange(0,J[i],dtype=int) 
+            mu_0[i] = find_mu('coverage',nu_eq_star[i],J[i],S[i],m_0[i],\
+                              m_scaling[i,j],m_0[i],m_scaling[i,j],a_0[i],\
+                              a_scaling[i,j],g_scaling[i,j],alpha[i],\
+                              mu_init=0.1)
+            N[i,j] = N_dist_eq(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                               a_scaling[i,j],a_0[i],g_scaling[i,j],\
+                               nu_eq_shade[i])        
+            
+                            
+        if P_or_gamma == 'P':
+            
+            if nu_eq[i] != 0:
+            
+                P_eq_shade[i] = P[i]*nu_eq_shade[i]/\
+                                nu_eq[i]
+                
+            else:
+                
+                P_eq_shade[i] = 0.
+                
+        elif PFT_competition == False:
+            
+            for i in range(0,I):
+                
+                j = np.arange(0,J[i],dtype=int)  
+                N[i,j] = N_dist_eq(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                                   a_scaling[i,j],a_0[i],g_scaling[i,j],\
+                                   nu_eq[i])
+            
+    if (P_or_gamma == 'P' and PFT_competition == True):
+        
+        return mu_0, N, nu_eq_shade, P_eq_shade
+    
+    elif (P_or_gamma == 'P' and PFT_competition == False):
+
+        return mu_0, N, nu_eq, P_eq_shade
+    
+    elif (PFT_competition == True):
+        
+        return mu_0, N, nu_eq_shade
+        
+    elif (PFT_competition == False):
+        
+        return mu_0, N, nu_eq
+        
+    return
+        
+    
+def EQ_P_gamma(observation_type,P,gamma_base,I,J,J_max,S,m_0,m_scaling,a_0,\
+               a_scaling,g_scaling,C,c_pftg,c_unique,alpha,nu_min,\
+               PFT_competition):
+    
+    """
+    From a total gridbox assmilate rate and a baseline mortality derive the
+    RED equilibrium distribution and mu_0 values.
+    
     Inputs:
         
-            - PFT_group, Defines the physiology of the PFT, Tree, Shrub or
-              Grass. (-)
+        - P, Net Primary Productivity minus the Local Litterfall. The total 
+             carbon assimilate for the gridbox. (kg/m2/year)
+ 
+        - gamma_base, baseline mortalilty. (population/year)
             
-            - J, The number of mass classes within a PFT
-            
-            - m, stored carbon biomass. (kg)
-            
-            - h, the height of the tree across mass. (m)
-                        
-            - h_init, corresponding initial height. (m)
-
-            - h_mean, the mean vegetation height in the top 10% of the pop. (m)
-
-            - a, the crown area of an individual across mass. (m2)  
-                
-            - a_init, corresponding initial crown area. (m2)    
-
-            - g_init, the initial growth rate. (kg/year)
-
-            - G, the total structural growth of the cohort. (kg / year / m2)
-            
-            - gamma_init, the baseline mortality. (population/year)
+        - I, Number of PFTs. (-)
+              
+        - J, the number of mass classes. (-)
         
-            - nu, the vegetation fraction across masses. (-)        
-    
-            - nu_tot, the total vegetation fraction. (-)
+        - S, multiplicative bin scaling parameter. (-)
+                                   
+        - m_0, carbon mass at boundary. (kgC)
+            
+        - m_scaling, the mass scaling with respect to m_0. (-)
         
-            - phi_g, growth-mass scaling power. (-)
+        - a_0, boundary crown area. (m2)
             
-            - phi_h, height-mass scaling power. (-)
-            
-            - phi_a, crown area-mass scaling power. (-)
-            
+        - a_scaling, the crown area scaling with respect to a_0. (-)
+        
+        - g_scaling, the growth scaling with respect to g_0. (-)
+
+        - C, the number of unique PFT groups. (-)
+                  
+        - c_pftg, the PFT group dominance hierarchy. (-)
+        
+        - c_unique, the unique rows of each of the PFT group hierarchy. (-)
+                                          
+        - alpha, the reseed fraction. (-)
+
+        - nu_min, minimum vegetation fraction. (-)  
+        
     Outputs:
     
-            - M, The Biomass distribution. (kg/m2)
-            
-            - N, The updated number density. (population/m2)
-            
-            - h_mean, The mean Height of the grid box PFT from the top 10% of
-              population. (m)
-            
-            - G, the total structural growth of the cohort. (kg / year / m2)
-                                    
+        - N, the RED equilibrium number density (population/m2)
+          
+        - mu_0, the turnover ratio a boundary tree defined as: \
+          gamma_base * m_0/g_0. (-)        
     
-    *Niklas, Karl J., and Hanns-Christof Spatz. "Growth and hydraulic (not
-    mechanical) constraints govern the scaling of tree height and mass." 
-    Proceedings of the National Academy of Sciences 101.44 (2004): 15661-15663.
     """
-       
-    ### Demographic loop
-    #
-    # Loop uses allometric scaling for trees, grasses and shrubs and outputs
-    # the sum product of total biomass, growth and fraction.    
+    mu_0 = np.zeros(I)
+    nu_eq = np.zeros(I)
+    N = np.zeros((I,J_max))
+    
+    if observation_type == 'total':
+         
+        # Assuming the current observations have a close to identical
+        # distribution to that of the equilibrium, we first need to find 
+        # the equivalent equilibrium coverage that would lend to the 
+        # observation.
+        
+        for i in range(0,I):
+            
+            j = np.arange(0,J[i],dtype=int)  
+            mu_0[i] = find_mu_P(P[i],gamma_base[i],J[i],S[i],m_0[i],\
+                              m_scaling[i,j],a_0[i],a_scaling[i,j],\
+                              g_scaling[i,j],alpha[i],mu_init=0.2)
+            nu_eq[i] = nu_eq_disc(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                 m_scaling[i,j],a_scaling[i,j],g_scaling[i,j],\
+                 alpha[i],nu_min)
+        
+        # Next we take into account the cross PFT competitive dynamics, the 
+        # equilibrium coverage is adjusted according to the model paper. 
+        # Space currently occupied by sub-dominant PFTs is given over to 
+        # the PFT with the highest current equilibrium coverage. While the 
+        # adjusted equilibrium coverages are assumed to be somewhere 
+        # between the summation within functional groups and the current
+        # observation derived equilibrium coverage.
+        
+        if PFT_competition == True:
+            
+            nu_eq_star, nu_eq_shade = nu_eq_star_disc(I,nu_eq,nu_min,\
+                                                     C,c_pftg,c_unique)
+            
+            
+        # Refind mu_0, from the derived equilibrium cover. Then find the
+        # equilbrium number density distribution.
+        
+        if PFT_competition == True:
+            
+            for i in range(0,I):
+                
+                j = np.arange(0,J[i],dtype=int) 
+                mu_0[i] = find_mu('coverage',nu_eq_star[i],J[i],S[i],m_0[i],\
+                                  m_scaling[i,j],m_0[i],m_scaling[i,j],a_0[i],\
+                                  a_scaling[i,j],g_scaling[i,j],alpha[i],\
+                                  mu_init=0.1)
 
+                N[i,j] = N_dist_eq(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                                   a_scaling[i,j],a_0[i],g_scaling[i,j],\
+                                   nu_eq_shade[i])
+                
+        elif PFT_competition == False:
+            
+            for i in range(0,I):
+                
+                j = np.arange(0,J[i],dtype=int)  
+                N[i,j] = N_dist_eq(mu_0[i],J[i],S[i],m_scaling[i,j],\
+                                   a_scaling[i,j],a_0[i],g_scaling[i,j],\
+                                   nu_eq[i])
+            
+            
+    return mu_0, N
+    
+    
+def get_gamma(J,mu_0,N_eq,P_eq,m_0,g_scaling,alpha):
+    
+    """
+    For a given mu_0, equilibrium coverage and total carbon assimilate, 
+    find the required mortality rate to fit these values.    
+    
+    Inputs:
+        
+        - J, the number of mass classes. (-)
+        
+        - mu_0, the turnover ratio a boundary tree defined as: \
+          gamma_base * m_0/g_0. (-)
+          
+        - N_eq, the RED equilibrium number density across the classes
+          (population/m2)
+          
+        - P, Net Primary Productivity minus the Local Litterfall. The total 
+             carbon assimilate for the gridbox. (kg/m2/year)
+          
+        - m_0, carbon mass at boundary. (kgC)
+        
+        - g_scaling, the growth scaling with respect to g_0. (-)
+        
+        - alpha, the reseed fraction. (-)
+        
+    Outpus:
+        
+        - gamma_base,  the baseline mortalility. (population/year)
+    
+    """
+    
+    # The scaling sum of N with respect to G
+    N_g_scaling_sum = 0.
+    
+    
     for j in range(0,J):
         
-        if PFT_group == 'T':
+        N_g_scaling_sum = N_g_scaling_sum + N_eq[j] * g_scaling[j] 
+
+    if N_g_scaling_sum != 0:
+        
+        g_0 = (1-alpha)*P_eq/N_g_scaling_sum
+
+        gamma_base = mu_0 * g_0 / m_0
+        
+        # If the baseline mortality rate is bellow or equal to zero set to 
+        # infinity
+        
+        if gamma_base <= 0:
             
-            h[j] = h_init * (m[j]/m[0]) ** phi_h
+            gamma_base = float('inf')
 
-            a[j] = a_init * (m[j]/m[0]) ** phi_a
-
-            g = g_init * (m[j]/m[0]) ** phi_g
-
-        elif PFT_group == 'S':
-            
-            h[j] = h_init * (m[j]/m[0]) ** phi_h
-
-            a[j] = a_init * (m[j]/m[0]) ** phi_a
-
-            g = g_init * (m[j]/m[0]) ** phi_g
-
-        elif PFT_group == 'G':
-
-            h[j] = h_init
-            
-            a[j] = a_init
-            
-            g = g_init
-
+    else:
         
-        M = M + N[j] * m[j]
-        
-        nu[j] = N[j] * a[j]
-
-        G = G + N[j] * g
-
-            
-    ### Height Loop
-    #
-    #  Loop runs from top to bottom adding the total height density and number
-    #  density for the process of finding the average height within the top 10%
-    #  of the population.      
-    #
-    #  nu must be normalilsed to isolate the fractional distribution from the 
-    #  rest of the grid box.
-
-    
-    if J > 1:
-        
-        N_tot = 0.0 
-        
-        h_tot = 0.0
-        
-        nu_h_tot = 0.0
-        
-        nu_h_check = 0.1
+        gamma_base = float('inf')
         
         
-        
-        for j in range(J-1,-1,-1):
-        
-        
-            nu_h_tot = nu_h_tot + nu[j]/nu_tot
-            
-            if nu_h_tot < nu_h_check:
-            
-                N_tot = N_tot + N[j]
-                
-                h_tot = h_tot + N[j] * h[j]
-                
-                
-            elif nu_h_tot >= nu_h_check:
-                            
-                N_remainder = (nu_h_tot - nu_h_check)/ a[j]
-            
-                N_tot = N_tot + N_remainder
-                
-                h_tot = h_tot + N_remainder * h[j]
-        
-                break
-            
-            if N_tot > 0.0:
-                
-                h_mean = h_tot / N_tot
-        
-            else:
-                
-                h_mean = h[0]
-                
-        else:
-            
-            h_mean = h[0]
-
-    return M, N, h_mean, G
+    return gamma_base

@@ -3,183 +3,124 @@
 """
 Created on Thu Jul  5 13:56:03 2018
 
+In this script we demonstrate how red functions and is initialised with a 
+simple run setup. Firstly we declare a observation (i.e. coverage, biomass…) 
+and a value, with a paired grid-box assimilate can be used to find a model 
+equilibrium. Next we spin up from a coverage to show convergence towards
+our diagnosed equilibrium.
+
 @author: aa760
 """
 
-from RED_MODULE import RED
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Patch
-import os
-from datetime import datetime
+import matplotlib.pyplot as plt
 
-script_dir = os.path.dirname(__file__)
-fig_dir = os.path.join(script_dir,'Output/figures/red_test/')
-
-### Time values
-maxtime= 500
-timestep = 0.2
-T = np.arange(0.0,maxtime,timestep)
-ktime = len(T)
-dt = np.zeros(ktime)
+# RED MODULES
+from RED_MODULE import RED, RED_init
+from RED_MODULE.RED_SUBROUTINE.MISC_METHODS import LOAD_PFT_VALUES
 
 
-num_pft = 9
+#%% Initiate RED
+help(RED_init) 
+# PFTs in element order:
+# BET-Tr, Broadleaf Evergreen Tropical Tree
+# BET-Te, Broadleaf Evergreen Temperate Tree
+# BDT, Broadleaf Deciduous Tree
+# NET, Needleleaf Evergreen Tree
+# NDT, Needleleaf Deciduous Tree
+# C3, Cool Season Grass
+# C4, Tropical Grass
+# ESh, Evergreen Shrub
+# DSh, Deciduous Shrub
 
 
+observation = 'coverage'
+observation_type = 'total'
+observation_value = [0.35, 0.3,0.,0.,0.,0.2,0.,0.,0.2]
+P_or_gamma = 'P' # Switch 
+P_obs = [1.4, 2.0,0.1,0.1,0.,0.3,0.,0.,0.8]  # Observed gridbox assimilate
 
+
+PFT_competition = True # Adjusts the calculated observed vegetation fraction
+                       # to take into account the PFT hierarchy.
+overwrite_check = True # Overwrite check, rewrites the PFT values file.
+
+
+output_key = ('N_m','nu_tot','M_tot','gamma_base','mu_0','g_m')
+
+N_eq_m, nu_eq, M_tot, gamma_base,mu_0_eq, g = RED_init(observation,
+                                            observation_value[:],\
+                                            observation_type,\
+                                            P_or_gamma=P_or_gamma,\
+                                            P_tot = P_obs[:],\
+                                            PFT_competition=PFT_competition,\
+                                            overwrite_check = overwrite_check,\
+                                            output_key=output_key)
+
+### Get PFT values
+key = ('PFT_name','I','J','J_max','m','alpha')
+PFT_name, I, J, J_max, m, alpha = LOAD_PFT_VALUES(key)
+
+# Determine the equilibrium growth of an individual PFT member 
+p = np.zeros((I,J_max))
+
+for i in range(0,I):
+    
+    p[i,:] = g[i,:]/(1.0-alpha[i])
+
+#%% Drive RED over time
+dt = 0.5 # Per year
+start_year = 0.
+end_year = 1000.
+year = np.arange(start_year,end_year,dt)
+K = len(year)
+
+N = np.zeros((I,J_max,K))
+nu_tot = np.zeros((I,K))
+M_tot = np.zeros((I,K))
+lambda_dem = np.zeros((I,K))
+mu_0 = np.zeros((I,K))
+F_N = np.zeros((I,J_max,K))
+P = np.zeros((I,K))
+m_lower = np.ones(I) * 1
+
+
+output_key = ('N_m','nu_tot','mu_0')
+mu_0 = np.zeros((I,K))
+
+#N[:,:,0] = N_eq_m[:,:]  # Uncomment for equilibrium initialisation
+#nu_tot[:,0]  = nu_eq[:]
+
+for k in range(0,K-1):
+    
+    for i in range(0,I):
+        
+        P[i,k] = sum(N[i,0:J[i],k]*p[i,0:J[i]]) # Determine grid-box assimilate
+        
+    N[:,:,k+1], nu_tot[:,k+1], mu_0[:,k+1] = \
+    \
+    RED(dt,P[:,k],N[:,:,k],nu_tot[:,k],gamma_base=gamma_base[:],\
+        output_key=output_key)
+  
+    
 #%%
 
+pft_col = ['#1f78b4','#a6cee3','#cab2d6','#33a02c','#b2df8a','#fdbf6f',\
+                 '#ff7f00','#e31a1c','#fb9a99','#6e6d6c']                     # BET-Tr
 
-# Change to fit number of PFTs.
-M = np.zeros((ktime,num_pft))
-# Change to fit number of mass classes. (currently 10)
-N = np.zeros((ktime,num_pft,10))
-h_mean = np.zeros((ktime,num_pft))
-P_init = [0.0, 0.0, 0.0, 0.0, 0.2565128707298727,0.2176408878894467, 0.1830805822303801,0.4404134877929182, 0.23952657266548183]
-P = P_init * np.ones((ktime,num_pft))
-nu_tot = np.zeros((ktime,num_pft))
+pft_name = ['BET-Tr','BET-Te','BDT','NET','NDT','C3','C4','ESh','DSh']
 
-nu_init =   [0.0, 0.0, 0.02296552248299122, 0.0514194592833519,0.599310040473938, 0.15302607417106628, 0.0,0.09776247292757034, 0.0505065992474556, 0.0,0.009994689375162125, 0.014850177802145481, 0.0]
-nu_obs = [0.0, 0.0, 0.02296552248299122, 0.0514194592833519,0.599310040473938, 0.15302607417106628, 0.0,0.09776247292757034, 0.0505065992474556, 0.0,0.009994689375162125, 0.014850177802145481, 0.0]
-gamma_init = [np.inf, np.inf, np.inf, np.inf, 0.010997714689771407,0.05136042738161767, 0.033836159647465947, 0.12265408740797126, 0.022718759602234066]
-N2 = np.zeros((ktime,num_pft,10))
-M2 = np.zeros((ktime,num_pft))
-h_mean2 = np.zeros((ktime,num_pft))
-nu_tot2 = np.zeros((ktime,num_pft))
-
-        
-for k in range(0,ktime - 1):
+plt.figure()
+lw = 3.0
+for i in [0,1,2,3,4,5,6,7,8]:
     
-
-    if k == 0:
-
-         m, M[k,:], N[k,:,:], h_mean[k,:], nu_tot[k,:], gamma_init2 = RED(0,nu_tot=nu_init[0:9],P = P_init, init=True,init_typ = 'nu_P')
- #       m, M[k,:], N[k,:,:], h_mean[k,:], nu_tot[k,:], gamma_init2 = RED(0,gamma_init=gamma_init,P = P_init, init=True,init_typ = 'P_gamma_init')
-
-            
-        
-
-    year = np.floor(T[k])
-    year_prog = T[k] - year
-
-
-    m, M[k+1,:], N[k+1,:,:], h_mean[k+1,:], nu_tot[k+1,0:9], _ = RED(timestep,N=N[k,:,:],nu_tot=nu_tot[k,0:9],gamma_init=gamma_init2,P = P[k,:],init=False)
+    plt.plot([year[0],year[-1]],[nu_eq[i],nu_eq[i]],color=pft_col[i],marker='x',ls=':',linewidth=2.0)
+    plt.plot(year,nu_tot[i,:],label=pft_name[i],color=pft_col[i],linewidth=2.0)
     
-    _, M2[k+1,:], N2[k+1,:,:], h_mean2[k+1,:], nu_tot2[k+1,0:9], _ = RED(timestep,N=N2[k,:,:],nu_tot=nu_tot2[k,0:9],gamma_init=gamma_init2,P=P[k,:],init=False)
-
-#%%
-
-pft_col = list(np.zeros(10))
-pft_name = list(np.zeros(10))
-pft_handel = list(np.zeros(10))
-
-pft_name[0] = 'BET-Tr'
-pft_name[1] = 'BET-Te'
-pft_name[2] = 'BDT'
-pft_name[3] = 'NET'
-pft_name[4] = 'NDT'
-pft_name[5] = 'C3'
-pft_name[6] = 'C4'
-pft_name[7] = 'Esh'
-pft_name[8] = 'Dsh'
-pft_name[9] = 'Total'
-
-pft_col[0] = [78.0/255.0,48.0/255.0,132.0/255.0]    # BET-Tr
-pft_col[1] = [160.5/255.0,100.0/255.0,150.5/255.0]# BET-Te
-pft_col[2] = [223.0/255.0,114.0/255.0,1.0,1.0]  # BDT
-pft_col[3] = [150.0/255.0,200.0/255.0,120.0/255.0]  # NET
-pft_col[4] = [0.0/255.0,158.0/255.0,96.0/255.0]  # NDT
-pft_col[5] = [255.0/255.0,211.0/255.0,0.0/255.0]  # C3
-pft_col[6] = [218.0/255.0,165.0/255.0,32.0/255.0]  # C4
-pft_col[7] = [255.0/255.0,0.0/255.0,0.0/255.0] # Esh
-pft_col[8] = [102.0/255.0,0.0/255.0,0.0/255.0]  # Dsh
-pft_col[9] = [0.0/255.0, 0.0/255.0, 0.0/255.0]  # Total
-
-from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.gridspec as gridspec
-
-#%% Plots
-pfts = [4,5,6,7]
-with PdfPages(fig_dir+'PFT_outputs_nuP.pdf') as pdf:
-    # plot 1
-    
-    rows = 2
-    cols = 1
-    
-    fig = plt.figure(figsize=(11.69,8.27))
-    gs = gridspec.GridSpec(rows,cols)
-    
-    ax = fig.add_subplot(gs[0,0]) 
-
-    for pft in pfts:
-        ax.plot(T,nu_tot[:,pft],color=pft_col[pft])
-        ax.plot(T,nu_tot2[:,pft],color=pft_col[pft],label=pft_name[pft],linestyle=':')
-        ax.plot([T[0],T[-1]],[nu_obs[pft],nu_obs[pft]],color=pft_col[pft],linestyle='--',marker='|')
-
-        pft_handel[pft] = Patch(color=pft_col[pft], label=pft_name[pft])
-    
-
-    ax.legend(pft_handel,pft_name,bbox_to_anchor=(1.005, 1))
-    ax.set_xlabel('Stand Age')
-    ax.set_ylabel(r'$\nu$')
+plt.xlim(start_year,end_year)
+plt.ylim(0,1)
+plt.ylabel('coverage (-)')
+plt.xlabel('time (year)')
+plt.legend(bbox_to_anchor=(1.,0.8))
 
 
-    ax = fig.add_subplot(gs[1,0]) 
-    
-    for pft in range(0,num_pft):
-        ax.plot(T,M[:,pft],color=pft_col[pft])
-        ax.plot(T,M2[:,pft],color=pft_col[pft],linestyle=':')
-        
-    ax.set_xlabel('Stand Age')
-    ax.set_ylabel(r'$M \ (\mathrm{kg \ m^{-2}})$')
-    
-    fig.suptitle('Gamma Var')
-    fig.tight_layout()    
-    pdf.attach_note(r'Eq_PFT_outputs')    
-    pdf.savefig()
-    plt.show()
-    plt.close(fig)
-    
-"""
-with PdfPages(fig_dir+'PFT_outputs_Pgam.pdf') as pdf:
-    # plot 1
-    
-    rows = 2
-    cols = 1
-    
-    fig = plt.figure(figsize=(11.69,8.27))
-    gs = gridspec.GridSpec(rows,cols)
-    
-    ax = fig.add_subplot(gs[0,0]) 
-
-    for pft in pfts:
-        ax.plot(T,nu_tot[:,pft],color=pft_col[pft])
-        ax.plot(T,nu_tot2[:,pft],color=pft_col[pft],label=pft_name[pft],linestyle=':')
-
-        pft_handel[pft] = Patch(color=pft_col[pft], label=pft_name[pft])
-    
-
-    ax.legend(pft_handel,pft_name,bbox_to_anchor=(1.005, 1))
-    ax.set_xlabel('Stand Age')
-    ax.set_ylabel(r'$\nu$')
-
-
-    ax = fig.add_subplot(gs[1,0]) 
-    
-    for pft in pfts:
-        ax.plot(T,M[:,pft],color=pft_col[pft])
-        ax.plot(T,M2[:,pft],color=pft_col[pft],linestyle=':')
-    
-    ax.set_yscale('log')
-    ax.set_xlabel('Stand Age')
-    ax.set_ylabel(r'$M \ (\mathrm{kg \ m^{-2}})$')
-    
-    fig.suptitle('Gamma Fixed')
-    fig.tight_layout()    
-    pdf.attach_note(r'Eq_PFT_outputs')    
-    pdf.savefig()
-    plt.show()
-    plt.close(fig)
-    
-"""
